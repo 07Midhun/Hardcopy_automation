@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}Bulk Upload | AI Document Intelligence{% endblock %}
+{% block page_title %}Bulk Document Ingestion Pipeline{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-8">
+    <div class="card-custom">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <ul class="nav nav-tabs card-header-tabs" id="uploadTab" role="tablist">
+          <li class="nav-item">
+            <button class="nav-link active fw-semibold" id="pdf-tab" data-bs-toggle="tab" data-bs-target="#pdf-upload" type="button" role="tab">
+              <i class="fa-solid fa-file-pdf me-1 text-danger"></i> Bulk PDF Files
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link fw-semibold" id="zip-tab" data-bs-toggle="tab" data-bs-target="#zip-upload" type="button" role="tab">
+              <i class="fa-solid fa-file-zipper me-1 text-warning"></i> ZIP Archive Ingestion
+            </button>
+          </li>
+        </ul>
+      </div>
+
+      <div class="card-body p-4">
+        <div class="tab-content" id="uploadTabContent">
+          <!-- Multi-PDF Tab -->
+          <div class="tab-pane fade show active" id="pdf-upload" role="tabpanel">
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Batch Name / Reference (Optional)</label>
+              <input type="text" id="pdfBatchName" class="form-control" placeholder="e.g. Ward 64 CCMS Physical Inspection Set">
+            </div>
+
+            <!-- Drag & Drop Zone -->
+            <div class="dropzone mb-3" id="pdfDropzone" onclick="document.getElementById('pdfFileInput').click()">
+              <i class="fa-solid fa-cloud-arrow-up text-primary"></i>
+              <h5 class="fw-bold mb-1">Drag and drop PDF documents here</h5>
+              <p class="text-muted small mb-2">Supports thousands of single-page physical paper scans or photographs</p>
+              <button type="button" class="btn btn-outline-primary btn-sm mt-2">
+                <i class="fa-solid fa-folder-open me-1"></i> Browse Files
+              </button>
+              <input type="file" id="pdfFileInput" multiple accept=".pdf" class="d-none">
+            </div>
+
+            <!-- Selected Files Counter & Preview -->
+            <div id="fileSelectionInfo" class="alert alert-light border d-none d-flex justify-content-between align-items-center">
+              <div>
+                <i class="fa-solid fa-file-circle-check text-success me-2"></i>
+                <span id="fileCountBadge" class="fw-bold">0 files</span> selected for ingestion.
+              </div>
+              <button class="btn btn-sm btn-outline-danger" onclick="clearSelectedFiles()">Clear</button>
+            </div>
+
+            <!-- Upload Progress Bar -->
+            <div id="uploadProgressBarContainer" class="mb-3 d-none">
+              <div class="d-flex justify-content-between small text-muted mb-1">
+                <span>Ingesting and registering documents...</span>
+                <span id="uploadProgressPercent">0%</span>
+              </div>
+              <div class="progress" style="height: 10px;">
+                <div id="uploadProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary" style="width: 0%;"></div>
+              </div>
+            </div>
+
+            <button id="btnStartPdfUpload" class="btn btn-primary w-100 py-2 fw-semibold" onclick="submitPdfUpload()" disabled>
+              <i class="fa-solid fa-bolt me-1"></i> Ingest & Enqueue Extraction Pipeline
+            </button>
+          </div>
+
+          <!-- ZIP Upload Tab -->
+          <div class="tab-pane fade" id="zip-upload" role="tabpanel">
+            <div class="alert alert-info border-0 mb-3">
+              <i class="fa-solid fa-circle-info me-2"></i>
+              <strong>High-Volume Upload:</strong> Uploading a single compressed <code>.zip</code> file allows uploading hundreds or thousands of documents in one archive.
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label fw-semibold">Batch Name / Reference</label>
+              <input type="text" id="zipBatchName" class="form-control" placeholder="e.g. Master Archive - 6,000 PDFs">
+            </div>
+
+            <div class="dropzone mb-3" id="zipDropzone" onclick="document.getElementById('zipFileInput').click()">
+              <i class="fa-solid fa-file-zipper text-warning"></i>
+              <h5 class="fw-bold mb-1">Drag and drop ZIP archive here</h5>
+              <p class="text-muted small mb-2">Single ZIP container containing PDF files</p>
+              <button type="button" class="btn btn-outline-warning btn-sm mt-2 text-dark">
+                <i class="fa-solid fa-folder-open me-1"></i> Browse Archive (.zip)
+              </button>
+              <input type="file" id="zipFileInput" accept=".zip" class="d-none">
+            </div>
+
+            <div id="zipSelectionInfo" class="alert alert-light border d-none">
+              <i class="fa-solid fa-file-zipper text-warning me-2"></i>
+              Selected: <strong id="zipFileName">archive.zip</strong> (<span id="zipFileSize">0 MB</span>)
+            </div>
+
+            <button id="btnStartZipUpload" class="btn btn-warning text-dark w-100 py-2 fw-semibold" onclick="submitZipUpload()" disabled>
+              <i class="fa-solid fa-cloud-arrow-up me-1"></i> Upload ZIP & Dispatch Worker Ingestion
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ingestion Architecture & Guidelines Sidebar -->
+  <div class="col-lg-4">
+    <div class="card-custom mb-4">
+      <div class="card-header">
+        <i class="fa-solid fa-shield-halved text-primary me-2"></i> Automated Ingestion Pipeline
+      </div>
+      <div class="card-body">
+        <ul class="list-unstyled mb-0 small">
+          <li class="mb-3 d-flex gap-2">
+            <i class="fa-solid fa-fingerprint text-primary mt-1"></i>
+            <div>
+              <strong>SHA-256 Content Hashing</strong>
+              <div class="text-muted">Calculates unique cryptographic fingerprint for every file to detect and log duplicates.</div>
+            </div>
+          </li>
+          <li class="mb-3 d-flex gap-2">
+            <i class="fa-solid fa-rotate-right text-success mt-1"></i>
+            <div>
+              <strong>OpenCV Auto-Deskew & Denoising</strong>
+              <div class="text-muted">Detects image rotation angle and equalizes contrast for faint handwriting without blurring strokes.</div>
+            </div>
+          </li>
+          <li class="mb-3 d-flex gap-2">
+            <i class="fa-solid fa-brain text-info mt-1"></i>
+            <div>
+              <strong>Dynamic Layout Understanding</strong>
+              <div class="text-muted">No template dependence. Identifies field labels, handwritten text, and multi-row tables automatically.</div>
+            </div>
+          </li>
+          <li class="d-flex gap-2">
+            <i class="fa-solid fa-file-excel text-success mt-1"></i>
+            <div>
+              <strong>Traceable Excel Export</strong>
+              <div class="text-muted">Consolidates thousands of processed documents into ONE single-sheet Excel workbook.</div>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/upload.js') }}"></script>
+{% endblock %}
+

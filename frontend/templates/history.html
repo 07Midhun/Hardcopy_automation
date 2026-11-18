@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Processing History | AI Document Intelligence{% endblock %}
+{% block page_title %}Batch Processing History & Audit Logs{% endblock %}
+
+{% block content %}
+<div class="card-custom mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <div>
+      <i class="fa-solid fa-clock-rotate-left text-primary me-2"></i>
+      <span class="fw-bold">Historical Extraction Batches</span>
+    </div>
+    <a href="{{ url_for('export.api_export_consolidated') }}" class="btn btn-sm btn-success" target="_blank">
+      <i class="fa-solid fa-file-excel me-1"></i> Download All Consolidated Excel
+    </a>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table table-custom table-hover mb-0">
+      <thead>
+        <tr>
+          <th>Batch / Job ID</th>
+          <th>Batch Name</th>
+          <th>Total Documents</th>
+          <th>Processed Successfully</th>
+          <th>Flagged for Review</th>
+          <th>Failed</th>
+          <th>Status</th>
+          <th>Created At</th>
+          <th>Completed At</th>
+          <th class="text-end">Export</th>
+        </tr>
+      </thead>
+      <tbody id="historyTableBody">
+        <tr><td colspan="10" class="text-center text-muted py-5">Loading history records...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    const res = await fetch("/api/history");
+    if (!res.ok) return;
+    const data = await res.json();
+    const tbody = document.getElementById("historyTableBody");
+
+    if (!data.history || data.history.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-5">No processing history records found.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.history.map(job => `
+      <tr>
+        <td><span class="font-monospace fw-bold">${job.id}</span></td>
+        <td><span class="fw-semibold">${job.batch_name || 'Standard Batch'}</span></td>
+        <td><span class="badge bg-light text-dark border">${job.total_documents}</span></td>
+        <td class="text-success fw-bold">${job.completed_documents}</td>
+        <td class="text-warning fw-bold">${job.review_required_documents}</td>
+        <td class="text-danger fw-bold">${job.failed_documents}</td>
+        <td><span class="badge-status ${job.status}">${job.status.replace('_', ' ')}</span></td>
+        <td class="small text-muted">${job.created_at ? new Date(job.created_at).toLocaleString() : 'N/A'}</td>
+        <td class="small text-muted">${job.completed_at ? new Date(job.completed_at).toLocaleString() : 'In Progress'}</td>
+        <td class="text-end">
+          <a href="/api/export/consolidated?job_id=${job.id}" class="btn btn-sm btn-outline-success" target="_blank" title="Download Excel">
+            <i class="fa-solid fa-file-excel"></i>
+          </a>
+        </td>
+      </tr>
+    `).join("");
+  } catch (err) {
+    console.error("Error loading processing history:", err);
+  }
+});
+</script>
+{% endblock %}
+

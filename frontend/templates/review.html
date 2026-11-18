@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Extraction Review | Human-in-the-Loop Verification{% endblock %}
+{% block page_title %}Human-in-the-Loop Verification Workstation{% endblock %}
+
+{% block extra_css %}
+<link href="{{ url_for('static', filename='css/review.css') }}" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<!-- Hidden input for active document ID if supplied via route -->
+<input type="hidden" id="activeDocIdInput" value="{{ active_document_id or '' }}">
+
+<!-- Review Queue Selector Bar -->
+<div class="card-custom mb-3 p-2 bg-white d-flex flex-wrap align-items-center justify-content-between gap-2">
+  <div class="d-flex align-items-center gap-2">
+    <label class="form-label mb-0 fw-semibold small text-muted">Active Document:</label>
+    <select id="reviewQueueSelect" class="form-select form-select-sm" style="min-width: 280px;" onchange="onSelectQueueDocument(this.value)">
+      <option value="">-- Select document needing review --</option>
+    </select>
+    <button class="btn btn-sm btn-outline-secondary" onclick="loadReviewQueue()" title="Refresh Review Queue">
+      <i class="fa-solid fa-rotate"></i>
+    </button>
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span class="badge bg-warning text-dark"><i class="fa-solid fa-user-check me-1"></i> Human Verification Mode</span>
+    <button class="btn btn-sm btn-success fw-semibold" id="btnSaveCorrections" onclick="saveAllCorrections()">
+      <i class="fa-solid fa-floppy-disk me-1"></i> Save & Verify Document
+    </button>
+  </div>
+</div>
+
+<!-- Side-by-Side Verification Container -->
+<div class="review-container">
+  <!-- LEFT PANEL: Document Image Viewer -->
+  <div class="viewer-panel">
+    <div class="viewer-toolbar">
+      <div class="d-flex align-items-center gap-2 text-white small">
+        <i class="fa-solid fa-file-image text-info"></i>
+        <span id="viewerFilename" class="fw-semibold">No Document Loaded</span>
+      </div>
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-dark text-white" onclick="zoomIn()" title="Zoom In">
+          <i class="fa-solid fa-magnifying-glass-plus"></i>
+        </button>
+        <button class="btn btn-dark text-white" onclick="zoomOut()" title="Zoom Out">
+          <i class="fa-solid fa-magnifying-glass-minus"></i>
+        </button>
+        <button class="btn btn-dark text-white" onclick="resetZoom()" title="Reset Zoom">
+          <i class="fa-solid fa-arrows-rotate"></i>
+        </button>
+        <button class="btn btn-dark text-white" onclick="rotateImage()" title="Rotate 90°">
+          <i class="fa-solid fa-rotate-right"></i>
+        </button>
+      </div>
+    </div>
+    <div class="viewer-viewport" id="viewerViewport">
+      <img id="reviewDocImage" src="" alt="Document Preview" class="document-image d-none">
+      <div id="viewerPlaceholder" class="text-white-50 text-center my-auto">
+        <i class="fa-solid fa-file-pdf fa-4x mb-3 text-secondary"></i>
+        <h5>Select a document from the queue above to begin verification</h5>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL: Extracted Fields & Inline Correction -->
+  <div class="fields-panel">
+    <div class="fields-header">
+      <div>
+        <h6 class="mb-0 fw-bold text-dark" id="fieldsHeaderTitle">Extracted Fields</h6>
+        <span class="small text-muted" id="fieldsHeaderSubtitle">Values requiring verification are highlighted</span>
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <span id="fieldsConfidenceBadge" class="badge bg-light text-dark border">Avg: --</span>
+      </div>
+    </div>
+
+    <div class="fields-body" id="fieldsContainer">
+      <div class="text-center text-muted py-5">
+        <i class="fa-solid fa-table-list fa-3x mb-3 text-secondary"></i>
+        <p>No document selected for review.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/review.js') }}"></script>
+{% endblock %}
+

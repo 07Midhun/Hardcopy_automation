@@ -1,0 +1,32 @@
+{
+  "Rules": [
+    {
+      "ID": "TransitionRawPDFsToGlacier",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "documents/"
+      },
+      "Transitions": [
+        {
+          "Days": 90,
+          "StorageClass": "STANDARD_IA"
+        },
+        {
+          "Days": 180,
+          "StorageClass": "GLACIER"
+        }
+      ]
+    },
+    {
+      "ID": "ExpireTemporaryPreviews",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "temp/"
+      },
+      "Expiration": {
+        "Days": 7
+      }
+    }
+  ]
+}
+

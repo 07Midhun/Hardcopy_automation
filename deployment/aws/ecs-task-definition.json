@@ -1,0 +1,60 @@
+{
+  "family": "ai-doc-intelligence-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "2048",
+  "memory": "4096",
+  "executionRoleArn": "arn:aws:iam::123456789012:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::123456789012:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "ai-doc-intelligence-web",
+      "image": "123456789012.dkr.ecr.us-east-1.amazonaws.com/ai-doc-intelligence:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 5000,
+          "protocol": "tcp"
+        }
+      ],
+      "command": [
+        "gunicorn",
+        "--bind",
+        "0.0.0.0:5000",
+        "--workers",
+        "4",
+        "--timeout",
+        "180",
+        "backend.wsgi:app"
+      ],
+      "environment": [
+        {"name": "FLASK_ENV", "value": "production"},
+        {"name": "STORAGE_BACKEND", "value": "s3"},
+        {"name": "S3_BUCKET_NAME", "value": "ai-doc-intelligence-storage"}
+      ],
+      "secrets": [
+        {
+          "name": "SECRET_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:doc-ai/SECRET_KEY"
+        },
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:doc-ai/DATABASE_URL"
+        },
+        {
+          "name": "CELERY_BROKER_URL",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:doc-ai/REDIS_URL"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/ai-doc-intelligence",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "web"
+        }
+      }
+    }
+  ]
+}
+

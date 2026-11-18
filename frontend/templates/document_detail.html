@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Document {{ document.id }} | Details{% endblock %}
+{% block page_title %}Document Extraction Details: {{ document.id }}{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <a href="{{ url_for('document.documents_view') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="fa-solid fa-arrow-left me-1"></i> Back to Document Manager
+  </a>
+</div>
+
+<!-- Metadata Header Card -->
+<div class="card-custom mb-4">
+  <div class="card-body p-4">
+    <div class="row g-3">
+      <div class="col-md-3">
+        <div class="text-muted small">Document ID</div>
+        <div class="fs-5 fw-bold font-monospace text-primary">{{ document.id }}</div>
+      </div>
+      <div class="col-md-3">
+        <div class="text-muted small">Original Filename</div>
+        <div class="fw-semibold text-truncate" title="{{ document.original_filename }}">{{ document.original_filename }}</div>
+      </div>
+      <div class="col-md-2">
+        <div class="text-muted small">Classified Type</div>
+        <div><span class="badge bg-light text-dark border">{{ document.document_type }}</span></div>
+      </div>
+      <div class="col-md-2">
+        <div class="text-muted small">Status</div>
+        <div><span class="badge-status {{ document.status }}">{{ document.status.replace('_', ' ') }}</span></div>
+      </div>
+      <div class="col-md-2 text-md-end">
+        <a href="{{ url_for('review.review_document_view', doc_id=document.id) }}" class="btn btn-warning">
+          <i class="fa-solid fa-pen-to-square me-1"></i> Review & Edit
+        </a>
+      </div>
+    </div>
+    <hr class="my-3">
+    <div class="row g-2 small text-muted">
+      <div class="col-md-4">
+        <strong>SHA-256 Hash:</strong> <span class="font-monospace">{{ document.file_hash[:24] }}...</span>
+      </div>
+      <div class="col-md-3">
+        <strong>Storage Key:</strong> <span class="font-monospace text-truncate d-inline-block" style="max-width: 200px;">{{ document.s3_key }}</span>
+      </div>
+      <div class="col-md-2">
+        <strong>File Size:</strong> {{ (document.file_size / 1024)|round(1) }} KB
+      </div>
+      <div class="col-md-3 text-md-end">
+        <strong>Avg Confidence:</strong> {{ (document.confidence_average * 100)|round(0) }}%
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <!-- Left Column: Document Image Preview -->
+  <div class="col-lg-5">
+    <div class="card-custom h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fa-solid fa-image me-2 text-primary"></i>Document Rendered View</span>
+        <a href="/api/documents/{{ document.id }}/preview" target="_blank" class="btn btn-sm btn-outline-secondary">
+          <i class="fa-solid fa-up-right-from-square me-1"></i> Full Size
+        </a>
+      </div>
+      <div class="card-body p-3 text-center bg-dark rounded-bottom d-flex align-items-center justify-content-center" style="min-height: 480px;">
+        <img src="/api/documents/{{ document.id }}/preview" alt="Document Preview" class="img-fluid rounded shadow" style="max-height: 600px;" onerror="this.onerror=null; this.src=''; this.parentElement.innerHTML='<div class=\'text-white-50 p-4\'><i class=\'fa-solid fa-file-pdf fa-3x mb-3\'></i><p>Document preview will be generated during extraction processing.</p></div>';">
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Column: Extracted Records & Fields Hierarchy -->
+  <div class="col-lg-7">
+    <div class="card-custom h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fa-solid fa-table-list me-2 text-primary"></i>Extracted Structured Data</span>
+        <span class="badge bg-primary">{{ document.records|length }} Sections/Records</span>
+      </div>
+      <div class="card-body p-4" style="max-height: 680px; overflow-y: auto;">
+        {% if document.records %}
+          {% for record in document.records %}
+            <div class="section-group mb-4">
+              <div class="section-title">
+                <span><i class="fa-solid fa-layer-group me-2"></i>{{ record.section }}</span>
+                <span class="badge bg-light text-secondary border">Record #{{ record.record_number }} (Page {{ record.page_number }})</span>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th style="width: 35%;">Field Name</th>
+                      <th>Extracted Value</th>
+                      <th style="width: 15%;">Confidence</th>
+                      <th style="width: 15%;">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for field in record.fields %}
+                      <tr>
+                        <td class="fw-semibold text-secondary">{{ field.field_name }}</td>
+                        <td class="font-monospace">
+                          {% if field.current_value %}
+                            {{ field.current_value }}
+                          {% else %}
+                            <em class="text-muted">[Empty]</em>
+                          {% endif %}
+                        </td>
+                        <td>
+                          {% set conf = (field.confidence_score * 100)|round(0)|int %}
+                          <span class="confidence-pill {% if conf >= 85 %}conf-high{% elif conf >= 60 %}conf-medium{% else %}conf-low{% endif %}">
+                            {{ conf }}%
+                          </span>
+                        </td>
+                        <td>
+                          <span class="badge-status {{ field.verification_status }} small">
+                            {{ field.verification_status }}
+                          </span>
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-center py-5 text-muted">
+            <i class="fa-solid fa-file-circle-question fa-3x mb-3 text-secondary"></i>
+            <h5>No extracted fields yet</h5>
+            <p class="small">The document is either in the processing queue or encountered an error.</p>
+            {% if document.error_message %}
+              <div class="alert alert-danger mt-3 text-start small">
+                <strong>Error:</strong> {{ document.error_message }}
+              </div>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+

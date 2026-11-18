@@ -1,0 +1,137 @@
+/* ==============================================================================
+   Side-by-Side Document Review Workstation Styles
+   ============================================================================== */
+
+.review-container {
+  display: flex;
+  height: calc(100vh - 120px);
+  gap: 1.25rem;
+}
+
+/* Left Panel: Document Viewer */
+.viewer-panel {
+  flex: 1.1;
+  background-color: #1e293b;
+  border-radius: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.viewer-toolbar {
+  background-color: #0f172a;
+  padding: 0.65rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #334155;
+}
+
+.viewer-viewport {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1.5rem;
+  position: relative;
+  background-color: #1e293b;
+}
+
+.document-image {
+  max-width: 100%;
+  height: auto;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  border-radius: 4px;
+  transform-origin: top center;
+  transition: transform 0.2s ease-out;
+}
+
+/* Right Panel: Extraction Fields & Verification */
+.fields-panel {
+  flex: 1;
+  background-color: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.fields-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: #f8fafc;
+}
+
+.fields-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem;
+}
+
+.section-group {
+  margin-bottom: 1.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  background: #ffffff;
+}
+
+.section-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1e3a8a;
+  margin-bottom: 0.85rem;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 0.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.field-row {
+  margin-bottom: 0.85rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px dashed #f1f5f9;
+}
+
+.field-row:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.confidence-pill {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 9999px;
+}
+
+.conf-high {
+  background-color: #dcfce7;
+  color: #15803d;
+}
+
+.conf-medium {
+  background-color: #fef3c7;
+  color: #b45309;
+}
+
+.conf-low {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+.field-meta {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 0.25rem;
+}
+
