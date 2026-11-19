@@ -106,6 +106,14 @@ def create_app(config_name: str = None) -> Flask:
     # Create tables automatically on startup if not yet created & clean up interrupted runs
     with app.app_context():
         db.create_all()
+        # Ensure file_content column exists in documents table (auto-migration for Neon PostgreSQL)
+        try:
+            with db.engine.connect() as conn:
+                conn.execute(db.text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_content BYTEA;"))
+                conn.commit()
+        except Exception:
+            pass
+
         try:
             from backend.app.models.document import Document
             from backend.app.models.processing_job import ProcessingJob

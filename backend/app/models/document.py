@@ -14,6 +14,7 @@ class Document(db.Model):
     s3_key = db.Column(db.String(512), nullable=False)
     file_hash = db.Column(db.String(64), nullable=False, index=True)  # SHA-256
     file_size = db.Column(db.BigInteger, default=0, nullable=False)
+    file_content = db.deferred(db.Column(db.LargeBinary, nullable=True))
     page_count = db.Column(db.Integer, default=1, nullable=False)
     document_type = db.Column(db.String(128), default="Unidentified", nullable=False, index=True)
     status = db.Column(db.String(32), default="pending", nullable=False, index=True)

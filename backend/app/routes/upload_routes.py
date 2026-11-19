@@ -92,6 +92,9 @@ def api_upload_bulk():
         s3_key = f"documents/{job_id}/{doc_id}.pdf"
         storage.save_file(str(local_temp_file), s3_key, content_type="application/pdf")
 
+        # Read binary bytes for database persistence across container restarts
+        pdf_bytes = local_temp_file.read_bytes()
+
         # Register in DB
         doc = Document(
             id=doc_id,
@@ -100,6 +103,7 @@ def api_upload_bulk():
             s3_key=s3_key,
             file_hash=file_hash,
             file_size=file_size,
+            file_content=pdf_bytes,
             status="queued"
         )
         db.session.add(doc)

@@ -56,8 +56,12 @@ class ExtractionService:
         enhanced_image = temp_dir / "enhanced_page1.png"
 
         try:
-            # 1. Download file from storage
-            storage.get_file(doc.s3_key, str(local_pdf))
+            # 1. Download/restore file from database persistence or storage
+            if not local_pdf.exists():
+                if doc.file_content:
+                    local_pdf.write_bytes(doc.file_content)
+                else:
+                    storage.get_file(doc.s3_key, str(local_pdf))
 
             # 2. Inspect & validate PDF
             is_valid, err_msg, page_count = PDFService.inspect_and_validate(local_pdf)

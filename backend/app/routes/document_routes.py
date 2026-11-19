@@ -105,7 +105,8 @@ def api_retry_document(doc_id: str):
     doc.error_message = None
     db.session.commit()
 
-    process_single_document_task.delay(doc.id)
+    from backend.app.tasks.processing_tasks import enqueue_document_processing
+    enqueue_document_processing(doc.id)
     return jsonify({"message": f"Retry queued for document {doc.id}"}), 200
 
 
@@ -125,7 +126,10 @@ def api_preview_document(doc_id: str):
     if not preview_cache.exists():
         preview_cache.parent.mkdir(parents=True, exist_ok=True)
         local_pdf = preview_cache.with_suffix(".pdf")
-        storage.get_file(doc.s3_key, str(local_pdf))
+        if doc.file_content:
+            local_pdf.write_bytes(doc.file_content)
+        else:
+            storage.get_file(doc.s3_key, str(local_pdf))
         PDFService.render_page(local_pdf, page_number=1, dpi=200, target_path=preview_cache)
         local_pdf.unlink(missing_ok=True)
 
