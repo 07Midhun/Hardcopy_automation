@@ -27,12 +27,13 @@ def retry_document_task(document_id: str):
 @celery_app.task
 def retry_job_failed_documents_task(job_id: str):
     """Retry all failed documents within a job."""
+    from backend.app.tasks.processing_tasks import enqueue_document_processing
     failed_docs = db.session.query(Document).filter_by(job_id=job_id, status="failed").all()
     for doc in failed_docs:
         doc.status = "queued"
         doc.error_message = None
         db.session.commit()
-        process_single_document_task.delay(doc.id)
+        enqueue_document_processing(doc.id)
 
     return {"job_id": job_id, "retrying": len(failed_docs)}
 

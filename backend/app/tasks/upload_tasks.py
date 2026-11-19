@@ -65,7 +65,8 @@ def process_zip_upload_task(job_id: str, zip_file_path: str):
             registered_count += 1
 
             # Enqueue processing task
-            process_single_document_task.delay(doc.id)
+            from backend.app.tasks.processing_tasks import enqueue_document_processing
+            enqueue_document_processing(doc.id)
 
         job.total_documents = registered_count
         db.session.commit()
