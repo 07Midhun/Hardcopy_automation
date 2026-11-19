@@ -103,9 +103,23 @@ def create_app(config_name: str = None) -> Flask:
     def health_check():
         return jsonify({"status": "ok"}), 200
 
-    # Create tables automatically on startup if not yet created
+    # Create tables automatically on startup if not yet created & clean up interrupted runs
     with app.app_context():
         db.create_all()
+        try:
+            from backend.app.models.document import Document
+            from backend.app.models.processing_job import ProcessingJob
+            stalled_docs = Document.query.filter_by(status="processing").all()
+            for d in stalled_docs:
+                d.status = "failed"
+                d.error_message = "Extraction was interrupted by a deployment restart. Please re-upload or retry."
+            stalled_jobs = ProcessingJob.query.filter_by(status="processing").all()
+            for j in stalled_jobs:
+                j.status = "failed"
+            if stalled_docs or stalled_jobs:
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
 
     # Error handlers
     @app.errorhandler(404)

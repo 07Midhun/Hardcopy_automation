@@ -58,6 +58,17 @@ def api_get_job(job_id: str):
     return jsonify(job.to_dict()), 200
 
 
+@processing_bp.route("/api/jobs/<job_id>", methods=["DELETE"])
+def api_delete_job(job_id: str):
+    """Delete a job and all its documents cleanly."""
+    job = db.session.get(ProcessingJob, job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    db.session.delete(job)
+    db.session.commit()
+    return jsonify({"message": f"Job {job_id} deleted successfully."}), 200
+
+
 @processing_bp.route("/api/jobs/<job_id>/progress", methods=["GET"])
 def api_get_job_progress(job_id: str):
     """

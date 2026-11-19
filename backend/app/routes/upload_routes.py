@@ -69,11 +69,22 @@ def api_upload_bulk():
         file_size = get_file_size(local_temp_file)
 
         # Prevent duplicate registration & duplicate Excel rows
-        if file_hash in seen_hashes or DuplicateService.is_duplicate(file_hash):
+        existing_doc = DuplicateService.find_duplicate_by_hash(file_hash)
+        if file_hash in seen_hashes:
             duplicates_detected += 1
-            logger.info(f"Skipping duplicate document ({clean_name}, Hash: {file_hash[:10]}...)")
             local_temp_file.unlink(missing_ok=True)
             continue
+
+        if existing_doc:
+            if existing_doc.status in ("completed", "review_required"):
+                duplicates_detected += 1
+                logger.info(f"Skipping already-completed duplicate document ({clean_name})")
+                local_temp_file.unlink(missing_ok=True)
+                continue
+            else:
+                logger.info(f"Purging prior incomplete/interrupted document {existing_doc.id} for fresh upload")
+                db.session.delete(existing_doc)
+                db.session.flush()
 
         seen_hashes.add(file_hash)
 

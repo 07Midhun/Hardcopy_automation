@@ -78,12 +78,11 @@ class VisionAIProvider(BaseAIProvider):
         return self._transform_json_result(document_id, filename, parsed, raw_response)
 
     GEMINI_FALLBACK_MODELS = [
+        "gemini-2.5-flash",
+        "gemini-flash-latest",
         "gemini-3.8-flash",
-        "gemini-3.7-flash",
-        "gemini-3.6-flash",
-        "gemini-3.5-flash",
         "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite",
+        "gemini-3.6-flash",
     ]
 
     def _post_with_retry(
@@ -95,10 +94,10 @@ class VisionAIProvider(BaseAIProvider):
         max_retries: int = 2
     ) -> requests.Response:
         """Send POST request with exponential backoff for HTTP 429/503 rate limits and timeouts."""
-        delay = 5.0
+        delay = 4.0
         for attempt in range(1, max_retries + 1):
             try:
-                res = requests.post(url, headers=headers, json=payload, timeout=75)
+                res = requests.post(url, headers=headers, json=payload, timeout=45)
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as net_err:
                 if attempt < max_retries:
                     logger.warning(
