@@ -13,6 +13,7 @@ from backend.app.models.document import Document
 from backend.app.storage.s3_storage import get_storage
 from backend.app.utils.file_utils import calculate_sha256, sanitize_filename, get_file_size
 from backend.app.services.duplicate_service import DuplicateService
+from backend.app.services.pdf_service import PDFService
 from backend.app.tasks.processing_tasks import enqueue_document_processing, enqueue_zip_processing
 from backend.app.utils.logger import get_logger
 
@@ -95,6 +96,9 @@ def api_upload_bulk():
         # Read binary bytes for database persistence across container restarts
         pdf_bytes = local_temp_file.read_bytes()
 
+        # Inspect page count so progress bar is accurate immediately
+        _, _, page_count = PDFService.inspect_and_validate(local_temp_file)
+
         # Register in DB
         doc = Document(
             id=doc_id,
@@ -104,6 +108,7 @@ def api_upload_bulk():
             file_hash=file_hash,
             file_size=file_size,
             file_content=pdf_bytes,
+            page_count=page_count or 1,
             status="queued"
         )
         db.session.add(doc)

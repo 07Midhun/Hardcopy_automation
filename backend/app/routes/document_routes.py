@@ -103,6 +103,13 @@ def api_retry_document(doc_id: str):
 
     doc.status = "queued"
     doc.error_message = None
+
+    from backend.app.models.processing_job import ProcessingJob
+    job = db.session.get(ProcessingJob, doc.job_id)
+    if job:
+        job.status = "processing"
+        job.completed_at = None
+
     db.session.commit()
 
     from backend.app.tasks.processing_tasks import enqueue_document_processing

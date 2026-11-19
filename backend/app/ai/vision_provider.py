@@ -33,7 +33,7 @@ class VisionAIProvider(BaseAIProvider):
 
     def _default_model_name(self) -> str:
         if self.service == "gemini":
-            return "gemini-3.8-flash"
+            return "gemini-3.5-flash-lite"
         elif self.service == "claude":
             return "claude-3-5-sonnet-20241022"
         return "gpt-4o"
@@ -78,11 +78,9 @@ class VisionAIProvider(BaseAIProvider):
         return self._transform_json_result(document_id, filename, parsed, raw_response)
 
     GEMINI_FALLBACK_MODELS = [
-        "gemini-2.5-flash",
-        "gemini-flash-latest",
-        "gemini-3.8-flash",
         "gemini-3.5-flash-lite",
-        "gemini-3.6-flash",
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
     ]
 
     def _post_with_retry(
@@ -97,7 +95,7 @@ class VisionAIProvider(BaseAIProvider):
         delay = 4.0
         for attempt in range(1, max_retries + 1):
             try:
-                res = requests.post(url, headers=headers, json=payload, timeout=45)
+                res = requests.post(url, headers=headers, json=payload, timeout=30)
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as net_err:
                 if attempt < max_retries:
                     logger.warning(
