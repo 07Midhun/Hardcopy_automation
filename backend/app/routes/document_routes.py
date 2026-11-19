@@ -106,7 +106,7 @@ def api_retry_document(doc_id: str):
     db.session.commit()
 
     from backend.app.tasks.processing_tasks import enqueue_document_processing
-    enqueue_document_processing(doc.id)
+    enqueue_document_processing(doc.id, resume=True)
     return jsonify({"message": f"Retry queued for document {doc.id}"}), 200
 
 

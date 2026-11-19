@@ -33,7 +33,7 @@ def retry_job_failed_documents_task(job_id: str):
         doc.status = "queued"
         doc.error_message = None
         db.session.commit()
-        enqueue_document_processing(doc.id)
+        enqueue_document_processing(doc.id, resume=True)
 
     return {"job_id": job_id, "retrying": len(failed_docs)}
 

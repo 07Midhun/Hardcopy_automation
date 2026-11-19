@@ -13,7 +13,7 @@ from backend.app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-def enqueue_document_processing(document_id: str, flask_app=None):
+def enqueue_document_processing(document_id: str, flask_app=None, resume: bool = False):
     """
     Dispatch document extraction immediately:
       - Testing mode: runs synchronously for deterministic tests.
@@ -23,7 +23,7 @@ def enqueue_document_processing(document_id: str, flask_app=None):
     app_obj = flask_app or current_app._get_current_object()
 
     if app_obj.config.get("TESTING", False):
-        ExtractionService.process_document(document_id, app_config=app_obj.config)
+        ExtractionService.process_document(document_id, app_config=app_obj.config, resume=resume)
         doc = db.session.get(Document, document_id)
         if doc:
             _update_job_progress(doc.job_id)
@@ -32,8 +32,8 @@ def enqueue_document_processing(document_id: str, flask_app=None):
     def _run_in_thread():
         with app_obj.app_context():
             try:
-                logger.info(f"Background worker started extraction for doc: {document_id}")
-                ExtractionService.process_document(document_id, app_config=app_obj.config)
+                logger.info(f"Background worker started extraction for doc: {document_id} (resume={resume})")
+                ExtractionService.process_document(document_id, app_config=app_obj.config, resume=resume)
                 doc = db.session.get(Document, document_id)
                 if doc:
                     _update_job_progress(doc.job_id)

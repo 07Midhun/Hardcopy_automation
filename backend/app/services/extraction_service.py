@@ -94,8 +94,8 @@ class ExtractionService:
                 page_rendered = temp_dir / f"rendered_page{page_num}.png"
                 page_enhanced = temp_dir / f"enhanced_page{page_num}.png"
 
-                # Render page image (250 DPI to preserve thin/faint handwritten digit strokes)
-                PDFService.render_page(local_pdf, page_number=page_num, dpi=250, target_path=page_rendered)
+                # Render page image (150 DPI for optimal vision balance and low cloud memory footprint)
+                PDFService.render_page(local_pdf, page_number=page_num, dpi=150, target_path=page_rendered)
 
                 # Image enhancement via OpenCV
                 ImageService.enhance_for_ocr(
@@ -176,6 +176,13 @@ class ExtractionService:
 
                 # Commit after each page so extracted data is never lost if a later page hits an API quota limit
                 db.session.commit()
+
+                # Clean up temporary rendered images and force garbage collection to keep RAM minimal
+                page_rendered.unlink(missing_ok=True)
+                page_enhanced.unlink(missing_ok=True)
+                del page_emb, extraction_result, page_table_rows
+                import gc
+                gc.collect()
 
             # 5. Final document classification & status update
             if detected_doc_type:
