@@ -90,17 +90,23 @@ def api_get_job_progress(job_id: str):
     total = job.total_documents
     processed = completed + failed + review
 
-    if total == 1 and processing == 1:
+    if total == 1 and (processing == 1 or queued == 1):
         # Single document multi-page progress calculation
-        active_doc = db.session.query(Document).filter_by(job_id=job_id, status="processing").first()
+        active_doc = db.session.query(Document).filter(
+            Document.job_id == job_id,
+            Document.status.in_(["processing", "queued"])
+        ).first()
         if active_doc and active_doc.page_count > 1:
             extracted_pages = db.session.query(
                 db.func.count(db.func.distinct(ExtractedRecord.page_number))
             ).filter_by(document_id=active_doc.id).scalar() or 0
-            page_percentage = round((extracted_pages / active_doc.page_count) * 100.0, 1)
-            percentage = max(10.0, min(page_percentage, 99.0))
+            if extracted_pages > 0:
+                page_percentage = round((extracted_pages / active_doc.page_count) * 100.0, 1)
+                percentage = min(page_percentage, 99.0)
+            else:
+                percentage = 5.0  # Shows active ingestion immediately
         else:
-            percentage = 15.0  # Shows active ingestion immediately
+            percentage = 5.0  # Shows active ingestion immediately
     elif total > 0:
         base_pct = (processed / total) * 100.0
         if processing > 0 and base_pct < 95.0:

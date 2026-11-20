@@ -14,12 +14,24 @@ async function refreshJobsList() {
     const data = await res.json();
     renderJobsTable(data.jobs);
 
-    // Pick most recent active or latest job
+    // Pick target job: keep user selection, or URL job_id, or first active job with documents, or latest job
     if (data.jobs && data.jobs.length > 0) {
-      const activeOrFirst = data.jobs.find(j => ["processing", "queued", "pending"].includes(j.status)) || data.jobs[0];
-      if (activeOrFirst) {
-        activeJobId = activeOrFirst.id;
-        loadJobProgress(activeOrFirst.id);
+      let targetJob = null;
+      if (activeJobId) {
+        targetJob = data.jobs.find(j => j.id === activeJobId);
+      }
+      if (!targetJob) {
+        const urlJobId = new URLSearchParams(window.location.search).get("job_id");
+        if (urlJobId) {
+          targetJob = data.jobs.find(j => j.id === urlJobId);
+        }
+      }
+      if (!targetJob) {
+        targetJob = data.jobs.find(j => ["processing", "queued", "pending"].includes(j.status) && j.total_documents > 0) || data.jobs[0];
+      }
+      if (targetJob) {
+        activeJobId = targetJob.id;
+        loadJobProgress(targetJob.id);
       }
     }
   } catch (err) {

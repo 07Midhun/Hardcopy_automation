@@ -99,7 +99,7 @@ function submitPdfUpload() {
     if (xhr.status >= 200 && xhr.status < 300) {
       const res = JSON.parse(xhr.responseText);
       alert(`Success: Registered ${res.registered_count} documents for background extraction!`);
-      window.location.href = "/processing";
+      window.location.href = res.job_id ? `/processing?job_id=${res.job_id}` : "/processing";
     } else {
       alert("Upload failed: " + xhr.responseText);
       btn.disabled = false;
