@@ -106,13 +106,19 @@ def create_app(config_name: str = None) -> Flask:
     # Create tables automatically on startup if not yet created
     with app.app_context():
         db.create_all()
-        # Ensure file_content column exists in documents table (auto-migration for Neon PostgreSQL)
+        # Ensure file_content column exists in documents table (auto-migration for SQLite and PostgreSQL)
         try:
             with db.engine.connect() as conn:
-                conn.execute(db.text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_content BYTEA;"))
-                conn.commit()
-        except Exception:
-            pass
+                if db.engine.name == "sqlite":
+                    cols = [row[1] for row in conn.execute(db.text("PRAGMA table_info(documents);")).fetchall()]
+                    if "file_content" not in cols:
+                        conn.execute(db.text("ALTER TABLE documents ADD COLUMN file_content BLOB;"))
+                        conn.commit()
+                else:
+                    conn.execute(db.text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_content BYTEA;"))
+                    conn.commit()
+        except Exception as mig_err:
+            logger.warning(f"Database auto-migration note: {mig_err}")
 
     # Error handlers
     @app.errorhandler(404)
