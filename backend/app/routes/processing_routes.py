@@ -28,7 +28,9 @@ def history_view():
 # --- REST API Endpoints ---
 @processing_bp.route("/api/jobs", methods=["GET"])
 def api_list_jobs():
-    """List all processing jobs, most recent first."""
+    """List all processing jobs, most recent first, with real-time multi-page progress."""
+    from backend.app.models.extracted_record import ExtractedRecord
+
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
     status_filter = request.args.get("status")
@@ -41,8 +43,28 @@ def api_list_jobs():
         page=page, per_page=per_page, error_out=False
     )
 
+    job_dicts = []
+    for j in pagination.items:
+        d = j.to_dict()
+        if j.total_documents == 1:
+            doc = db.session.query(Document).filter_by(job_id=j.id).first()
+            if doc and doc.page_count > 1:
+                extracted_pages = db.session.query(
+                    db.func.count(db.func.distinct(ExtractedRecord.page_number))
+                ).filter_by(document_id=doc.id).scalar() or 0
+                if doc.status in ("completed", "review_required") or extracted_pages >= doc.page_count:
+                    d["progress_percentage"] = 100.0
+                elif extracted_pages > 0:
+                    page_pct = round((extracted_pages / doc.page_count) * 100.0, 1)
+                    d["progress_percentage"] = min(page_pct, 99.0)
+                elif doc.status in ("processing", "queued"):
+                    d["progress_percentage"] = 5.0
+                else:
+                    d["progress_percentage"] = 0.0
+        job_dicts.append(d)
+
     return jsonify({
-        "jobs": [j.to_dict() for j in pagination.items],
+        "jobs": job_dicts,
         "total": pagination.total,
         "page": pagination.page,
         "pages": pagination.pages
@@ -90,23 +112,26 @@ def api_get_job_progress(job_id: str):
     total = job.total_documents
     processed = completed + failed + review
 
-    if total == 1 and (processing == 1 or queued == 1):
+    if total == 1:
         # Single document multi-page progress calculation
-        active_doc = db.session.query(Document).filter(
-            Document.job_id == job_id,
-            Document.status.in_(["processing", "queued"])
-        ).first()
-        if active_doc and active_doc.page_count > 1:
+        single_doc = db.session.query(Document).filter_by(job_id=job_id).first()
+        if single_doc and single_doc.page_count > 1:
             extracted_pages = db.session.query(
                 db.func.count(db.func.distinct(ExtractedRecord.page_number))
-            ).filter_by(document_id=active_doc.id).scalar() or 0
-            if extracted_pages > 0:
-                page_percentage = round((extracted_pages / active_doc.page_count) * 100.0, 1)
+            ).filter_by(document_id=single_doc.id).scalar() or 0
+            if completed == 1 or review == 1 or extracted_pages >= single_doc.page_count:
+                percentage = 100.0
+            elif extracted_pages > 0:
+                page_percentage = round((extracted_pages / single_doc.page_count) * 100.0, 1)
                 percentage = min(page_percentage, 99.0)
             else:
-                percentage = 5.0  # Shows active ingestion immediately
+                percentage = 5.0 if single_doc.status in ("processing", "queued") else 0.0
+        elif completed == 1:
+            percentage = 100.0
+        elif processing == 1 or queued == 1:
+            percentage = 5.0
         else:
-            percentage = 5.0  # Shows active ingestion immediately
+            percentage = 0.0
     elif total > 0:
         base_pct = (processed / total) * 100.0
         if processing > 0 and base_pct < 95.0:

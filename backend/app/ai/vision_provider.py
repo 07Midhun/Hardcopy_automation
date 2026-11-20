@@ -89,17 +89,17 @@ class VisionAIProvider(BaseAIProvider):
         payload: Dict[str, Any],
         headers: Optional[Dict[str, str]] = None,
         provider_label: str = "Vision AI",
-        max_retries: int = 2
+        max_retries: int = 4
     ) -> requests.Response:
-        """Send POST request with exponential backoff for HTTP 429/503 rate limits and timeouts."""
-        delay = 4.0
+        """Send POST request with exponential backoff for HTTP 429/503 rate limits, DNS errors, and timeouts."""
+        delay = 3.0
         for attempt in range(1, max_retries + 1):
             try:
-                res = requests.post(url, headers=headers, json=payload, timeout=30)
+                res = requests.post(url, headers=headers, json=payload, timeout=35)
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as net_err:
                 if attempt < max_retries:
                     logger.warning(
-                        f"{provider_label} network/timeout error ({type(net_err).__name__}). "
+                        f"{provider_label} network/connection error ({type(net_err).__name__}: {net_err}). "
                         f"Retrying in {delay:.1f}s (attempt {attempt}/{max_retries})..."
                     )
                     time.sleep(delay)

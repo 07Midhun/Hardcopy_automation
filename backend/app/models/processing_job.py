@@ -38,7 +38,9 @@ class ProcessingJob(db.Model):
     def progress_percentage(self) -> float:
         if self.total_documents == 0:
             return 0.0
-        processed = self.completed_documents + self.failed_documents + self.review_required_documents
+        if self.status == "failed" and self.completed_documents == 0 and self.review_required_documents == 0:
+            return 0.0
+        processed = self.completed_documents + self.review_required_documents
         return round((processed / self.total_documents) * 100.0, 1)
 
     def to_dict(self):
