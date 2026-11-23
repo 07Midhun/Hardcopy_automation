@@ -127,6 +127,24 @@ class ExcelService:
         return s.upper()
 
     @classmethod
+    def format_panel_uid(cls, val: Any) -> str:
+        if not val or str(val).strip() in ('-', '', 'None', 'null'):
+            return ""
+        clean = str(val).strip()
+        # Prefix is always constant: SSC107SM0 followed by 4-digit number
+        m = re.search(r'(\d{4})\s*$', clean)
+        if m:
+            return f"SSC107SM0{m.group(1)}"
+        m2 = re.search(r'\b(\d{4})\b', clean)
+        if m2:
+            return f"SSC107SM0{m2.group(1)}"
+        m3 = re.search(r'(\d+)', clean)
+        if m3:
+            num = int(m3.group(1))
+            return f"SSC107SM0{num:04d}"
+        return clean.upper()
+
+    @classmethod
     def format_sp_no(cls, val: Any) -> str:
         if not val:
             return "SP001"
@@ -562,7 +580,7 @@ class ExcelService:
             ward = cls.format_ward(ward_f.get("val") if ward_f else None)
 
             panel_f = ctx.get("New-CCMS UID No") or ctx.get("New CCMS UID No") or ctx.get("Panel UID") or ctx.get("CCMS UID")
-            panel_uid = str(panel_f.get("val") if panel_f else "").strip()
+            panel_uid = cls.format_panel_uid(panel_f.get("val") if panel_f else None)
 
             sp_f = ctx.get("Old Switch Point Number") or ctx.get("SP NO") or ctx.get("Switch Point No")
             sp_no = cls.format_sp_no(sp_f.get("val") if sp_f else None)
