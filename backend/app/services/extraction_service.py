@@ -4,6 +4,7 @@ Orchestrates the entire document intelligence pipeline:
 Storage retrieval -> PDF Validation -> Embedded text extraction -> Image rendering ->
 OpenCV Image enhancement -> AI/OCR extraction -> Normalization & Validation -> DB persistence.
 """
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional
