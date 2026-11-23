@@ -167,6 +167,18 @@ class ExtractionService:
                                                     existing_sls.add(int(f.value))
 
                                     for r_idx, r in enumerate(right_tbl_records, start=21):
+                                        # Skip blank placeholder rows (unpopulated printed template rows)
+                                        rf_map = {f.field_name.lower(): (str(f.value).strip() if f.value is not None else "") for f in r.fields}
+                                        pole_str = rf_map.get("pole no") or rf_map.get("pole id") or ""
+                                        has_pole = bool(re.search(r'\d+', pole_str))
+                                        conn_str = rf_map.get("connected lamp wattages") or rf_map.get("connected lamp wattage") or ""
+                                        tot_str = rf_map.get("total wattage") or ""
+                                        has_watt = bool(re.search(r'\d+', conn_str)) or bool(re.search(r'\d+', tot_str))
+                                        lamp_str = rf_map.get("existing led / new led / svl / non led") or rf_map.get("lamp type") or ""
+                                        has_lamp = bool(lamp_str and lamp_str.lower() not in ('none', 'null', '-', ''))
+                                        if not (has_pole or has_watt or has_lamp):
+                                            continue
+
                                         sl_field = next((f for f in r.fields if "sl" in f.field_name.lower()), None)
                                         sl_val = int(sl_field.value) if (sl_field and str(sl_field.value).isdigit()) else None
 
@@ -191,6 +203,18 @@ class ExtractionService:
                     # Persist records and fields for this page
                     page_table_rows = []
                     for record_data in extraction_result.records:
+                        if "table" in (record_data.section or "").lower():
+                            rf_map = {f.field_name.lower(): (str(f.value).strip() if f.value is not None else "") for f in record_data.fields}
+                            pole_str = rf_map.get("pole no") or rf_map.get("pole id") or ""
+                            has_pole = bool(re.search(r'\d+', pole_str))
+                            conn_str = rf_map.get("connected lamp wattages") or rf_map.get("connected lamp wattage") or ""
+                            tot_str = rf_map.get("total wattage") or ""
+                            has_watt = bool(re.search(r'\d+', conn_str)) or bool(re.search(r'\d+', tot_str))
+                            lamp_str = rf_map.get("existing led / new led / svl / non led") or rf_map.get("lamp type") or ""
+                            has_lamp = bool(lamp_str and lamp_str.lower() not in ('none', 'null', '-', ''))
+                            if not (has_pole or has_watt or has_lamp):
+                                continue
+
                         record = ExtractedRecord(
                             document_id=doc.id,
                             section=record_data.section,

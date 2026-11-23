@@ -159,8 +159,11 @@ class ExcelService:
         if not val or str(val).strip() in ('-', '', 'None', 'null'):
             return "-"
         clean = str(val).strip()
-        # If entry indicates missing/blank pole (e.g. "P - 33", "- SP-31", "-")
-        if re.match(r'^(?:P\s*[-–/]|[-–/])', clean):
+        # If entry indicates missing/blank pole (e.g. "P - 33", "- SP-31", "-", "SP-", "P SP-")
+        if re.match(r'^(?:P\s*[-–/]|[-–/]|(?:P\s*)?SP\s*[-–.]*$)', clean, re.IGNORECASE):
+            return "-"
+        # Must contain at least one digit to be a valid pole ID, otherwise it's just printed template text
+        if not re.search(r'\d+', clean):
             return "-"
         # Match leading pole number (e.g. "P 514 - 33", "663 SP- 39", "P0185", "507", "P 736 SP-41")
         m = re.search(r'(?:P\s*|Pole\s*)?0*(\d+)', clean, re.IGNORECASE)
@@ -590,21 +593,35 @@ class ExcelService:
             for r_num in sorted(tbl.keys()):
                 r_fields = tbl[r_num]
                 pole_f = r_fields.get("Pole No") or r_fields.get("Pole ID")
+                arm_f = r_fields.get("Arm Count")
+                ex_new_f = r_fields.get("Existing LED / New LED / Non LED") or r_fields.get("Lamp Type")
+                burn_f = r_fields.get("Lamp Burning Status (Yes/No)") or r_fields.get("Lamp Burning Status (Yes / No)")
+                conn_f = r_fields.get("Connected Lamp Wattages") or r_fields.get("Connected Lamp Wattage")
+                tot_f = r_fields.get("Total Wattage")
+
+                # Filter out completely blank unpopulated template rows (e.g. blank right table)
+                raw_pole = (pole_f.get("val") if pole_f else None) or ""
+                raw_conn = (conn_f.get("val") if conn_f else None) or ""
+                raw_tot = (tot_f.get("val") if tot_f else None) or ""
+                raw_type = (ex_new_f.get("val") if ex_new_f else None) or ""
+
+                has_pole_num = bool(re.search(r'\d+', str(raw_pole)))
+                has_wattage = bool(re.search(r'\d+', str(raw_conn))) or bool(re.search(r'\d+', str(raw_tot)))
+                has_lamp_type = bool(str(raw_type).strip() and str(raw_type).lower() not in ('none', 'null', '-', ''))
+
+                if not (has_pole_num or has_wattage or has_lamp_type):
+                    # Blank placeholder row on physical sheet
+                    continue
+
                 pole_id = cls.format_pole_id(pole_f.get("val") if pole_f else None)
 
-                arm_f = r_fields.get("Arm Count")
-                arm_count = str(arm_f.get("val") if arm_f else "1").strip() or "1"
+                arm_val = arm_f.get("val") if arm_f else None
+                arm_count = str(arm_val).strip() if (arm_val is not None and str(arm_val).strip() not in ('None', 'null', '')) else "1"
 
-                ex_new_f = r_fields.get("Existing LED / New LED / Non LED") or r_fields.get("Lamp Type")
                 ex_new = cls.format_existing_new(ex_new_f.get("val") if ex_new_f else None)
-
-                burn_f = r_fields.get("Lamp Burning Status (Yes/No)") or r_fields.get("Lamp Burning Status (Yes / No)")
                 burn_status = cls.format_burning_status(burn_f.get("val") if burn_f else None)
 
-                conn_f = r_fields.get("Connected Lamp Wattages") or r_fields.get("Connected Lamp Wattage")
-                conn_w = cls.format_wattage(conn_f.get("val") if conn_f else "56")
-
-                tot_f = r_fields.get("Total Wattage")
+                conn_w = cls.format_wattage(conn_f.get("val") if conn_f else "")
                 tot_w = cls.format_wattage(tot_f.get("val") if tot_f else conn_w)
 
                 # Check if any field in this row is low confidence
