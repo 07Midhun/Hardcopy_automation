@@ -138,10 +138,14 @@ class ExcelService:
 
     @classmethod
     def format_pole_id(cls, val: Any) -> str:
-        if not val or str(val).strip() in ('-', '', 'None'):
+        if not val or str(val).strip() in ('-', '', 'None', 'null'):
             return "-"
         clean = str(val).strip()
-        m = re.search(r'^0*(\d+)$', clean)
+        # If entry indicates missing/blank pole (e.g. "P - 33", "- SP-31", "-")
+        if re.match(r'^(?:P\s*[-–/]|[-–/])', clean):
+            return "-"
+        # Match leading pole number (e.g. "P 514 - 33", "663 SP- 39", "P0185", "507", "P 736 SP-41")
+        m = re.search(r'(?:P\s*|Pole\s*)?0*(\d+)', clean, re.IGNORECASE)
         if m:
             return f"P{int(m.group(1)):04d}"
         if clean.upper().startswith('P'):
@@ -202,6 +206,23 @@ class ExcelService:
           - layout='extended'           : Wide horizontal table with all columns side-by-side.
           - layout='normalized'         : Vertical 10-column key-value audit format (one row per field).
         """
+        # Default to the latest active/completed job if no job_id is specified
+        # This guarantees that exporting only produces the current uploaded batch, not all historical wards
+        if not job_id or str(job_id).strip() == "" or str(job_id).lower() == "latest":
+            from backend.app.models.processing_job import ProcessingJob
+            latest_job = (
+                ProcessingJob.query
+                .filter(ProcessingJob.total_documents > 0)
+                .order_by(ProcessingJob.created_at.desc())
+                .first()
+            )
+            if latest_job:
+                job_id = latest_job.id
+            else:
+                job_id = None
+        elif str(job_id).lower() == "all":
+            job_id = None
+
         if layout in ("tabular", "survey"):
             return cls.generate_tabular_workbook(
                 job_id=job_id,
@@ -395,11 +416,29 @@ class ExcelService:
     ) -> Path:
         """
         Generate consolidated CCMS Survey tabular workbook (EXACTLY ONE worksheet named 'Consolidated_Data').
-        Matches the 9-column format:
-        [WARD, PANEL UID, POLE ID, SP NO, ARM COUNT, EXISTING / NEW, BURNING STATUS, CONNECTED WATTAGE, TOTAL WATTAGE]
-        with PANEL UID vertically merged across all pole rows for each survey panel.
+        Matches the 10-column format:
+        [WARD, PANEL UID, POLE ID, SP NO, ARM COUNT, EXISTING / NEW, BURNING STATUS, CONNECTED WATTAGE, TOTAL WATTAGE, VERIFIED STATUS]
+        with PANEL UID vertically merged across all pole rows for each survey panel,
+        individual cells with low confidence scores highlighted in soft yellow (FFF2CC),
+        and VERIFIED STATUS marked as 'Review Required' or 'Verified'.
         """
         from collections import OrderedDict
+
+        # Default to latest job with documents if none provided or "latest"
+        if not job_id or str(job_id).strip() == "" or str(job_id).lower() == "latest":
+            from backend.app.models.processing_job import ProcessingJob
+            latest_job = (
+                ProcessingJob.query
+                .filter(ProcessingJob.total_documents > 0)
+                .order_by(ProcessingJob.created_at.desc())
+                .first()
+            )
+            if latest_job:
+                job_id = latest_job.id
+            else:
+                job_id = None
+        elif str(job_id).lower() == "all":
+            job_id = None
 
         if target_path is None:
             from flask import current_app
@@ -413,7 +452,7 @@ class ExcelService:
             target_path = Path(target_path).resolve()
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Generating 9-column Survey consolidated Excel report to {target_path}...")
+        logger.info(f"Generating Survey consolidated Excel report to {target_path} (job_id={job_id})...")
 
         query = db.session.query(
             Document.id.label("doc_id"),
@@ -423,7 +462,9 @@ class ExcelService:
             ExtractedRecord.section,
             ExtractedRecord.record_number,
             ExtractedField.field_name,
-            ExtractedField.current_value
+            ExtractedField.current_value,
+            ExtractedField.confidence_score,
+            ExtractedField.verification_status
         ).join(
             ExtractedRecord, Document.id == ExtractedRecord.document_id, isouter=True
         ).join(
@@ -450,10 +491,15 @@ class ExcelService:
             if not r.field_name:
                 continue
             sec = str(r.section or "").lower()
+            f_entry = {
+                "val": r.current_value,
+                "conf": r.confidence_score,
+                "status": r.verification_status
+            }
             if "table" in sec:
-                pages[page_key]["tables"].setdefault(r.record_number, {})[r.field_name] = r.current_value
+                pages[page_key]["tables"].setdefault(r.record_number, {})[r.field_name] = f_entry
             else:
-                pages[page_key]["context"][r.field_name] = r.current_value
+                pages[page_key]["context"][r.field_name] = f_entry
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -468,7 +514,8 @@ class ExcelService:
             "EXISTING / NEW",
             "BURNING STATUS",
             "CONNECTED WATTAGE",
-            "TOTAL WATTAGE"
+            "TOTAL WATTAGE",
+            "VERIFIED STATUS"
         ]
 
         header_font = Font(name="Calibri", size=11, bold=True, color="000000")
@@ -481,6 +528,18 @@ class ExcelService:
         cell_border = Border(left=thin_black_side, right=thin_black_side, top=thin_black_side, bottom=thin_black_side)
 
         data_font = Font(name="Calibri", size=10, color="000000")
+        review_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+
+        def is_low_conf(f_dict: Optional[dict]) -> bool:
+            if not f_dict:
+                return False
+            status = str(f_dict.get("status") or "").lower()
+            if status in ("review_required", "unreadable", "failed", "low_confidence"):
+                return True
+            conf = f_dict.get("conf")
+            if conf is not None and conf < 0.80:
+                return True
+            return False
 
         ws.append(headers)
         ws.row_dimensions[1].height = 24
@@ -497,20 +556,49 @@ class ExcelService:
             if not tbl:
                 continue
 
-            ward = cls.format_ward(ctx.get("Ward Number") or ctx.get("Constituency & Ward Number") or ctx.get("Ward"))
-            panel_uid = str(ctx.get("New-CCMS UID No") or ctx.get("New CCMS UID No") or ctx.get("Panel UID") or ctx.get("CCMS UID") or "").strip()
-            sp_no = cls.format_sp_no(ctx.get("Old Switch Point Number") or ctx.get("SP NO") or ctx.get("Switch Point No"))
+            ward_f = ctx.get("Ward Number") or ctx.get("Constituency & Ward Number") or ctx.get("Ward")
+            ward = cls.format_ward(ward_f.get("val") if ward_f else None)
+
+            panel_f = ctx.get("New-CCMS UID No") or ctx.get("New CCMS UID No") or ctx.get("Panel UID") or ctx.get("CCMS UID")
+            panel_uid = str(panel_f.get("val") if panel_f else "").strip()
+
+            sp_f = ctx.get("Old Switch Point Number") or ctx.get("SP NO") or ctx.get("Switch Point No")
+            sp_no = cls.format_sp_no(sp_f.get("val") if sp_f else None)
 
             start_row_for_page = current_row
 
             for r_num in sorted(tbl.keys()):
                 r_fields = tbl[r_num]
-                pole_id = cls.format_pole_id(r_fields.get("Pole No") or r_fields.get("Pole ID"))
-                arm_count = str(r_fields.get("Arm Count", "1")).strip() or "1"
-                ex_new = cls.format_existing_new(r_fields.get("Existing LED / New LED / Non LED") or r_fields.get("Lamp Type"))
-                burn_status = cls.format_burning_status(r_fields.get("Lamp Burning Status (Yes/No)"))
-                conn_w = cls.format_wattage(r_fields.get("Connected Lamp Wattages") or r_fields.get("Connected Lamp Wattage") or "56")
-                tot_w = cls.format_wattage(r_fields.get("Total Wattage") or conn_w)
+                pole_f = r_fields.get("Pole No") or r_fields.get("Pole ID")
+                pole_id = cls.format_pole_id(pole_f.get("val") if pole_f else None)
+
+                arm_f = r_fields.get("Arm Count")
+                arm_count = str(arm_f.get("val") if arm_f else "1").strip() or "1"
+
+                ex_new_f = r_fields.get("Existing LED / New LED / Non LED") or r_fields.get("Lamp Type")
+                ex_new = cls.format_existing_new(ex_new_f.get("val") if ex_new_f else None)
+
+                burn_f = r_fields.get("Lamp Burning Status (Yes/No)") or r_fields.get("Lamp Burning Status (Yes / No)")
+                burn_status = cls.format_burning_status(burn_f.get("val") if burn_f else None)
+
+                conn_f = r_fields.get("Connected Lamp Wattages") or r_fields.get("Connected Lamp Wattage")
+                conn_w = cls.format_wattage(conn_f.get("val") if conn_f else "56")
+
+                tot_f = r_fields.get("Total Wattage")
+                tot_w = cls.format_wattage(tot_f.get("val") if tot_f else conn_w)
+
+                # Check if any field in this row is low confidence
+                row_fields_conf = [
+                    is_low_conf(pole_f),
+                    is_low_conf(arm_f),
+                    is_low_conf(ex_new_f),
+                    is_low_conf(burn_f),
+                    is_low_conf(conn_f),
+                    is_low_conf(tot_f)
+                ]
+                has_low_conf = any(row_fields_conf) or is_low_conf(ward_f) or is_low_conf(panel_f) or is_low_conf(sp_f)
+
+                verified_status = "Review Required" if has_low_conf else "Verified"
 
                 row_vals = [
                     ward,
@@ -521,7 +609,8 @@ class ExcelService:
                     ex_new,
                     burn_status,
                     conn_w,
-                    tot_w
+                    tot_w,
+                    verified_status
                 ]
                 ws.append(row_vals)
 
@@ -530,6 +619,7 @@ class ExcelService:
                     cell.font = data_font
                     cell.border = cell_border
 
+                    # Alignment and number formats
                     if col_idx in (1, 3, 4, 6, 7):
                         cell.alignment = Alignment(horizontal="left", vertical="center")
                         cell.number_format = "@"
@@ -537,9 +627,29 @@ class ExcelService:
                         cell.alignment = Alignment(horizontal="right", vertical="center")
                         if str(cell.value).isdigit():
                             cell.number_format = "0"
-                    elif col_idx == 2:
+                    elif col_idx in (2, 10):
                         cell.alignment = Alignment(horizontal="center", vertical="center")
                         cell.number_format = "@"
+
+                    # Low confidence values highlighted in yellow (FFF2CC)
+                    if col_idx == 1 and is_low_conf(ward_f):
+                        cell.fill = review_fill
+                    elif col_idx == 3 and is_low_conf(pole_f):
+                        cell.fill = review_fill
+                    elif col_idx == 4 and is_low_conf(sp_f):
+                        cell.fill = review_fill
+                    elif col_idx == 5 and is_low_conf(arm_f):
+                        cell.fill = review_fill
+                    elif col_idx == 6 and is_low_conf(ex_new_f):
+                        cell.fill = review_fill
+                    elif col_idx == 7 and is_low_conf(burn_f):
+                        cell.fill = review_fill
+                    elif col_idx == 8 and is_low_conf(conn_f):
+                        cell.fill = review_fill
+                    elif col_idx == 9 and is_low_conf(tot_f):
+                        cell.fill = review_fill
+                    elif col_idx == 10 and has_low_conf:
+                        cell.fill = review_fill
 
                 current_row += 1
 
@@ -550,8 +660,10 @@ class ExcelService:
                     c = ws.cell(row=r, column=2)
                     c.border = cell_border
                     c.alignment = Alignment(horizontal="center", vertical="center")
+                    if is_low_conf(panel_f):
+                        c.fill = review_fill
 
-        col_widths = [10, 20, 14, 12, 14, 18, 18, 22, 16]
+        col_widths = [10, 20, 14, 12, 14, 18, 18, 20, 16, 18]
         for col_idx, width in enumerate(col_widths, 1):
             ws.column_dimensions[get_column_letter(col_idx)].width = width
 

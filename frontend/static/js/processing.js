@@ -63,6 +63,11 @@ async function loadJobProgress(jobId) {
     } else {
       retryBtn.style.display = "none";
     }
+
+    const downloadBtn = document.getElementById("btnDownloadActiveExcel");
+    if (downloadBtn) {
+      downloadBtn.href = `/api/export/consolidated?job_id=${jobId}`;
+    }
   } catch (err) {
     console.error(`Failed to load progress for job ${jobId}:`, err);
   }
