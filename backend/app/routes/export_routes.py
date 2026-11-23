@@ -22,7 +22,7 @@ def api_export_consolidated():
     """
     job_id = request.args.get("job_id")
     layout = request.args.get("format", "tabular").lower()
-    if layout not in ("tabular", "normalized"):
+    if layout not in ("tabular", "normalized", "extended", "survey"):
         layout = "tabular"
     try:
         excel_path = ExcelService.generate_consolidated_workbook(job_id=job_id, layout=layout).resolve()

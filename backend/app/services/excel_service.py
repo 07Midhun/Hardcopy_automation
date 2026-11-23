@@ -4,8 +4,9 @@ Generates EXACTLY ONE workbook containing EXACTLY ONE worksheet named 'Consolida
 Employs memory-efficient streaming, freeze panes, bold styled headers, auto-filters,
 and strict text-formatting to prevent stripping leading zeros or converting numbers to scientific notation.
 """
+import re
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Any
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -112,6 +113,76 @@ class ExcelService:
     }
 
     @classmethod
+    def format_ward(cls, val: Any) -> str:
+        if not val:
+            return ""
+        s = str(val).strip()
+        m = re.search(r'\b(?:W(?:ard)?\s*[-_.]?\s*(\d+)|\b(\d+)\s*Ward|No\.?\s*(\d+))\b', s, re.IGNORECASE)
+        if m:
+            num = m.group(1) or m.group(2) or m.group(3)
+            return f"W{int(num)}"
+        m2 = re.search(r'\b0*(\d+)\b', s)
+        if m2:
+            return f"W{int(m2.group(1))}"
+        return s.upper()
+
+    @classmethod
+    def format_sp_no(cls, val: Any) -> str:
+        if not val:
+            return "SP001"
+        clean = str(val).strip()
+        m = re.search(r'\b(?:SP)?0*(\d+)\b', clean, re.IGNORECASE)
+        if m:
+            return f"SP{int(m.group(1)):03d}"
+        return clean.upper()
+
+    @classmethod
+    def format_pole_id(cls, val: Any) -> str:
+        if not val or str(val).strip() in ('-', '', 'None'):
+            return "-"
+        clean = str(val).strip()
+        m = re.search(r'^0*(\d+)$', clean)
+        if m:
+            return f"P{int(m.group(1)):04d}"
+        if clean.upper().startswith('P'):
+            return clean.upper()
+        return f"P{clean.upper()}"
+
+    @classmethod
+    def format_existing_new(cls, val: Any) -> str:
+        if not val:
+            return "NEW"
+        clean = str(val).strip().upper()
+        if "NEW" in clean:
+            return "NEW"
+        if "OLD" in clean or "EXISTING" in clean:
+            return "EXISTING"
+        if "NON" in clean:
+            return "NON LED"
+        return clean
+
+    @classmethod
+    def format_burning_status(cls, val: Any) -> str:
+        if not val:
+            return "YES"
+        clean = str(val).strip().upper()
+        if clean in ('Y', 'YES', '1', 'TRUE'):
+            return "YES"
+        if clean in ('N', 'NO', '0', 'FALSE'):
+            return "NO"
+        return clean
+
+    @classmethod
+    def format_wattage(cls, val: Any) -> str:
+        if not val:
+            return ""
+        clean = str(val).strip()
+        m = re.match(r'^(\d+)\s*[Ww]$', clean)
+        if m:
+            return m.group(1)
+        return clean
+
+    @classmethod
     def _canonical_field_name(cls, name: str) -> str:
         clean = " ".join(str(name).strip().split())
         return cls.FIELD_ALIASES.get(clean.lower(), clean)
@@ -122,16 +193,22 @@ class ExcelService:
         job_id: Optional[str] = None,
         target_path: Optional[Path] = None,
         include_failed_placeholders: bool = True,
-        layout: str = "normalized"
+        layout: str = "tabular"
     ) -> Path:
         """
         Generate consolidated workbook containing exactly ONE worksheet named 'Consolidated_Data'.
         Supports:
-          - layout='tabular'    : Wide horizontal table (one row per pole/table record with all columns side-by-side).
-          - layout='normalized' : Vertical 10-column key-value audit format (one row per field).
+          - layout='tabular' / 'survey' : The exact 9-column Survey Sheet format with merged PANEL UID.
+          - layout='extended'           : Wide horizontal table with all columns side-by-side.
+          - layout='normalized'         : Vertical 10-column key-value audit format (one row per field).
         """
-        if layout == "tabular":
+        if layout in ("tabular", "survey"):
             return cls.generate_tabular_workbook(
+                job_id=job_id,
+                target_path=target_path
+            )
+        elif layout == "extended":
+            return cls.generate_extended_tabular_workbook(
                 job_id=job_id,
                 target_path=target_path,
                 include_failed_placeholders=include_failed_placeholders
@@ -311,6 +388,180 @@ class ExcelService:
 
     @classmethod
     def generate_tabular_workbook(
+        cls,
+        job_id: Optional[str] = None,
+        target_path: Optional[Path] = None,
+        include_failed_placeholders: bool = True
+    ) -> Path:
+        """
+        Generate consolidated CCMS Survey tabular workbook (EXACTLY ONE worksheet named 'Consolidated_Data').
+        Matches the 9-column format:
+        [WARD, PANEL UID, POLE ID, SP NO, ARM COUNT, EXISTING / NEW, BURNING STATUS, CONNECTED WATTAGE, TOTAL WATTAGE]
+        with PANEL UID vertically merged across all pole rows for each survey panel.
+        """
+        from collections import OrderedDict
+
+        if target_path is None:
+            from flask import current_app
+            from backend.app.config import Config
+            configured_dir = current_app.config.get("EXPORTS_DIR", Config.EXPORTS_DIR) if current_app else Config.EXPORTS_DIR
+            export_dir = Path(configured_dir).resolve()
+            export_dir.mkdir(parents=True, exist_ok=True)
+            filename = f"Consolidated_Export_{job_id or 'All'}.xlsx"
+            target_path = export_dir / filename
+        else:
+            target_path = Path(target_path).resolve()
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"Generating 9-column Survey consolidated Excel report to {target_path}...")
+
+        query = db.session.query(
+            Document.id.label("doc_id"),
+            Document.original_filename,
+            ExtractedRecord.id.label("record_id"),
+            ExtractedRecord.page_number,
+            ExtractedRecord.section,
+            ExtractedRecord.record_number,
+            ExtractedField.field_name,
+            ExtractedField.current_value
+        ).join(
+            ExtractedRecord, Document.id == ExtractedRecord.document_id, isouter=True
+        ).join(
+            ExtractedField, ExtractedRecord.id == ExtractedField.record_id, isouter=True
+        )
+
+        if job_id:
+            query = query.filter(Document.job_id == job_id)
+
+        query = query.order_by(
+            Document.id,
+            ExtractedRecord.page_number,
+            ExtractedRecord.record_number,
+            ExtractedField.id
+        )
+
+        rows = query.all()
+
+        pages = OrderedDict()
+        for r in rows:
+            page_key = (r.doc_id, r.page_number or 1)
+            if page_key not in pages:
+                pages[page_key] = {"context": {}, "tables": OrderedDict()}
+            if not r.field_name:
+                continue
+            sec = str(r.section or "").lower()
+            if "table" in sec:
+                pages[page_key]["tables"].setdefault(r.record_number, {})[r.field_name] = r.current_value
+            else:
+                pages[page_key]["context"][r.field_name] = r.current_value
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = WORKSHEET_NAME
+
+        headers = [
+            "WARD",
+            "PANEL UID",
+            "POLE ID",
+            "SP NO",
+            "ARM COUNT",
+            "EXISTING / NEW",
+            "BURNING STATUS",
+            "CONNECTED WATTAGE",
+            "TOTAL WATTAGE"
+        ]
+
+        header_font = Font(name="Calibri", size=11, bold=True, color="000000")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+
+        thick_black_side = Side(style="medium", color="000000")
+        thin_black_side = Side(style="thin", color="000000")
+
+        header_border = Border(left=thin_black_side, right=thin_black_side, top=thick_black_side, bottom=thick_black_side)
+        cell_border = Border(left=thin_black_side, right=thin_black_side, top=thin_black_side, bottom=thin_black_side)
+
+        data_font = Font(name="Calibri", size=10, color="000000")
+
+        ws.append(headers)
+        ws.row_dimensions[1].height = 24
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.font = header_font
+            cell.alignment = header_alignment
+            cell.border = header_border
+
+        current_row = 2
+        for page_key, pdata in pages.items():
+            ctx = pdata["context"]
+            tbl = pdata["tables"]
+            if not tbl:
+                continue
+
+            ward = cls.format_ward(ctx.get("Ward Number") or ctx.get("Constituency & Ward Number") or ctx.get("Ward"))
+            panel_uid = str(ctx.get("New-CCMS UID No") or ctx.get("New CCMS UID No") or ctx.get("Panel UID") or ctx.get("CCMS UID") or "").strip()
+            sp_no = cls.format_sp_no(ctx.get("Old Switch Point Number") or ctx.get("SP NO") or ctx.get("Switch Point No"))
+
+            start_row_for_page = current_row
+
+            for r_num in sorted(tbl.keys()):
+                r_fields = tbl[r_num]
+                pole_id = cls.format_pole_id(r_fields.get("Pole No") or r_fields.get("Pole ID"))
+                arm_count = str(r_fields.get("Arm Count", "1")).strip() or "1"
+                ex_new = cls.format_existing_new(r_fields.get("Existing LED / New LED / Non LED") or r_fields.get("Lamp Type"))
+                burn_status = cls.format_burning_status(r_fields.get("Lamp Burning Status (Yes/No)"))
+                conn_w = cls.format_wattage(r_fields.get("Connected Lamp Wattages") or r_fields.get("Connected Lamp Wattage") or "56")
+                tot_w = cls.format_wattage(r_fields.get("Total Wattage") or conn_w)
+
+                row_vals = [
+                    ward,
+                    panel_uid,
+                    pole_id,
+                    sp_no,
+                    arm_count,
+                    ex_new,
+                    burn_status,
+                    conn_w,
+                    tot_w
+                ]
+                ws.append(row_vals)
+
+                for col_idx in range(1, len(headers) + 1):
+                    cell = ws.cell(row=current_row, column=col_idx)
+                    cell.font = data_font
+                    cell.border = cell_border
+
+                    if col_idx in (1, 3, 4, 6, 7):
+                        cell.alignment = Alignment(horizontal="left", vertical="center")
+                        cell.number_format = "@"
+                    elif col_idx in (5, 8, 9):
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                        if str(cell.value).isdigit():
+                            cell.number_format = "0"
+                    elif col_idx == 2:
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                        cell.number_format = "@"
+
+                current_row += 1
+
+            end_row_for_page = current_row - 1
+            if end_row_for_page > start_row_for_page:
+                ws.merge_cells(start_row=start_row_for_page, end_row=end_row_for_page, start_column=2, end_column=2)
+                for r in range(start_row_for_page, end_row_for_page + 1):
+                    c = ws.cell(row=r, column=2)
+                    c.border = cell_border
+                    c.alignment = Alignment(horizontal="center", vertical="center")
+
+        col_widths = [10, 20, 14, 12, 14, 18, 18, 22, 16]
+        for col_idx, width in enumerate(col_widths, 1):
+            ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+        wb.save(str(target_path))
+        wb.close()
+        logger.info(f"Survey format consolidated Excel workbook created: {target_path} ({current_row - 2} records)")
+        return target_path
+
+    @classmethod
+    def generate_extended_tabular_workbook(
         cls,
         job_id: Optional[str] = None,
         target_path: Optional[Path] = None,

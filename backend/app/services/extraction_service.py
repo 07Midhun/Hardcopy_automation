@@ -94,95 +94,137 @@ class ExtractionService:
                 page_rendered = temp_dir / f"rendered_page{page_num}.png"
                 page_enhanced = temp_dir / f"enhanced_page{page_num}.png"
 
-                # Render page image (150 DPI for optimal vision balance and low cloud memory footprint)
-                PDFService.render_page(local_pdf, page_number=page_num, dpi=150, target_path=page_rendered)
+                try:
+                    # Render page image (150 DPI for optimal vision balance and low cloud memory footprint)
+                    PDFService.render_page(local_pdf, page_number=page_num, dpi=150, target_path=page_rendered)
 
-                # Image enhancement via OpenCV
-                ImageService.enhance_for_ocr(
-                    image_path=page_rendered,
-                    output_path=page_enhanced,
-                    deskew=True,
-                    enhance_contrast=True,
-                    denoise=True,
-                    sharpen=True
-                )
-
-                # Extract page content using configured AI provider
-                page_emb = PDFService.extract_embedded_text(local_pdf).get("text", "")
-                extraction_result = ai_provider.extract_document(
-                    document_id=f"{doc.id}-p{page_num}" if doc.page_count > 1 else doc.id,
-                    filename=doc.original_filename,
-                    image_path=page_enhanced,
-                    pdf_path=local_pdf,
-                    embedded_text=page_emb
-                )
-
-                if not detected_doc_type and extraction_result.document_type not in ("Unidentified", "Unidentified Document", ""):
-                    detected_doc_type = extraction_result.document_type
-
-                # Persist records and fields for this page
-                page_table_rows = []
-                for record_data in extraction_result.records:
-                    record = ExtractedRecord(
-                        document_id=doc.id,
-                        section=record_data.section,
-                        record_number=record_data.record_number,
-                        page_number=page_num
+                    # Image enhancement via OpenCV
+                    ImageService.enhance_for_ocr(
+                        image_path=page_rendered,
+                        output_path=page_enhanced,
+                        deskew=True,
+                        enhance_contrast=True,
+                        denoise=True,
+                        sharpen=True
                     )
-                    db.session.add(record)
-                    db.session.flush()
 
-                    row_fields = []
-                    for field_data in record_data.fields:
-                        norm_name = NormalizationService.normalize_field_name(field_data.field_name)
-                        cleaned_val = NormalizationService.clean_value(field_data.value)
+                    # Extract page content using configured AI provider with 1 automatic retry
+                    page_emb = PDFService.extract_embedded_text(local_pdf).get("text", "")
+                    try:
+                        extraction_result = ai_provider.extract_document(
+                            document_id=f"{doc.id}-p{page_num}" if doc.page_count > 1 else doc.id,
+                            filename=doc.original_filename,
+                            image_path=page_enhanced,
+                            pdf_path=local_pdf,
+                            embedded_text=page_emb
+                        )
+                    except Exception as first_attempt_err:
+                        logger.warning(f"Page {page_num} extraction attempt 1 failed ({first_attempt_err}). Retrying in 2s...")
+                        import time
+                        time.sleep(2.0)
+                        extraction_result = ai_provider.extract_document(
+                            document_id=f"{doc.id}-p{page_num}" if doc.page_count > 1 else doc.id,
+                            filename=doc.original_filename,
+                            image_path=page_enhanced,
+                            pdf_path=local_pdf,
+                            embedded_text=page_emb
+                        )
 
-                        val_status, reason = ValidationService.validate_field(
-                            field_name=norm_name,
-                            value=cleaned_val,
-                            confidence=field_data.confidence,
+                    if not detected_doc_type and extraction_result.document_type not in ("Unidentified", "Unidentified Document", ""):
+                        detected_doc_type = extraction_result.document_type
+
+                    # Persist records and fields for this page
+                    page_table_rows = []
+                    for record_data in extraction_result.records:
+                        record = ExtractedRecord(
+                            document_id=doc.id,
+                            section=record_data.section,
+                            record_number=record_data.record_number,
+                            page_number=page_num
+                        )
+                        db.session.add(record)
+                        db.session.flush()
+
+                        row_fields = []
+                        for field_data in record_data.fields:
+                            norm_name = NormalizationService.normalize_field_name(field_data.field_name)
+                            cleaned_val = NormalizationService.clean_value(field_data.value)
+
+                            val_status, reason = ValidationService.validate_field(
+                                field_name=norm_name,
+                                value=cleaned_val,
+                                confidence=field_data.confidence,
+                                confidence_threshold=ai_provider.confidence_threshold
+                            )
+
+                            if val_status == "review_required":
+                                has_review_required = True
+
+                            extracted_field = ExtractedField(
+                                record_id=record.id,
+                                field_name=norm_name,
+                                original_extracted_value=cleaned_val,
+                                current_value=cleaned_val,
+                                confidence_score=field_data.confidence,
+                                verification_status=val_status,
+                                source_coordinates=field_data.coordinates
+                            )
+                            db.session.add(extracted_field)
+                            row_fields.append(extracted_field)
+
+                            total_conf += field_data.confidence
+                            field_count += 1
+
+                        if "table" in (record_data.section or "").lower():
+                            page_table_rows.append(row_fields)
+
+                    # Cross-row table validation: detect digit-confusion outliers (e.g. 338 -> 378) & wattage math errors
+                    if page_table_rows:
+                        anomalies = ValidationService.validate_page_table_consistency(
+                            page_table_rows,
                             confidence_threshold=ai_provider.confidence_threshold
                         )
-
-                        if val_status == "review_required":
+                        if anomalies:
                             has_review_required = True
 
-                        extracted_field = ExtractedField(
-                            record_id=record.id,
-                            field_name=norm_name,
-                            original_extracted_value=cleaned_val,
-                            current_value=cleaned_val,
-                            confidence_score=field_data.confidence,
-                            verification_status=val_status,
-                            source_coordinates=field_data.coordinates
-                        )
-                        db.session.add(extracted_field)
-                        row_fields.append(extracted_field)
+                    # Commit after each page so extracted data is never lost if a later page hits an API quota limit
+                    db.session.commit()
 
-                        total_conf += field_data.confidence
-                        field_count += 1
-
-                    if "table" in (record_data.section or "").lower():
-                        page_table_rows.append(row_fields)
-
-                # Cross-row table validation: detect digit-confusion outliers (e.g. 338 -> 378) & wattage math errors
-                if page_table_rows:
-                    anomalies = ValidationService.validate_page_table_consistency(
-                        page_table_rows,
-                        confidence_threshold=ai_provider.confidence_threshold
+                except Exception as page_err:
+                    db.session.rollback()
+                    logger.error(f"Page {page_num} of {doc.id} encountered persistent error: {page_err}. Flagging for review and continuing remaining pages.")
+                    has_review_required = True
+                    placeholder_rec = ExtractedRecord(
+                        document_id=doc.id,
+                        section="Review Required",
+                        record_number=1,
+                        page_number=page_num
                     )
-                    if anomalies:
-                        has_review_required = True
+                    db.session.add(placeholder_rec)
+                    db.session.flush()
+                    placeholder_field = ExtractedField(
+                        record_id=placeholder_rec.id,
+                        field_name="Page Status",
+                        original_extracted_value=f"Page {page_num} requires review: {str(page_err)}",
+                        current_value=f"Page {page_num} extraction flagged for review",
+                        confidence_score=0.0,
+                        verification_status="review_required"
+                    )
+                    db.session.add(placeholder_field)
+                    db.session.commit()
 
-                # Commit after each page so extracted data is never lost if a later page hits an API quota limit
-                db.session.commit()
-
-                # Clean up temporary rendered images and force garbage collection to keep RAM minimal
-                page_rendered.unlink(missing_ok=True)
-                page_enhanced.unlink(missing_ok=True)
-                del page_emb, extraction_result, page_table_rows
-                import gc
-                gc.collect()
+                finally:
+                    # Clean up temporary rendered images and force garbage collection to keep RAM minimal
+                    page_rendered.unlink(missing_ok=True)
+                    page_enhanced.unlink(missing_ok=True)
+                    if 'page_emb' in locals():
+                        del page_emb
+                    if 'extraction_result' in locals():
+                        del extraction_result
+                    if 'page_table_rows' in locals():
+                        del page_table_rows
+                    import gc
+                    gc.collect()
 
             # 5. Final document classification & status update
             if detected_doc_type:
