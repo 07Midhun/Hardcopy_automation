@@ -133,6 +133,61 @@ class ExtractionService:
                     if not detected_doc_type and extraction_result.document_type not in ("Unidentified", "Unidentified Document", ""):
                         detected_doc_type = extraction_result.document_type
 
+                    # Check for two-column (side-by-side) streetlight survey table (e.g. Sl.No 21-40 on right half)
+                    try:
+                        import cv2
+                        import numpy as np
+                        enhanced_img = cv2.imread(str(page_enhanced))
+                        if enhanced_img is not None:
+                            img_h, img_w, _ = enhanced_img.shape
+                            right_half = enhanced_img[:, int(img_w * 0.48):]
+                            gray_right = cv2.cvtColor(right_half, cv2.COLOR_BGR2GRAY)
+                            table_area = gray_right[int(img_h * 0.28):int(img_h * 0.95), :]
+                            dark_pixels = int(np.sum(table_area < 185))
+
+                            if dark_pixels > 4000:
+                                right_crop_path = temp_dir / f"enhanced_page{page_num}_right.png"
+                                cv2.imwrite(str(right_crop_path), right_half)
+                                try:
+                                    right_res = ai_provider.extract_document(
+                                        document_id=f"{doc.id}-p{page_num}-right",
+                                        filename=doc.original_filename,
+                                        image_path=right_crop_path,
+                                        pdf_path=local_pdf
+                                    )
+                                    right_tbl_records = [
+                                        r for r in right_res.records
+                                        if "table" in (r.section or "").lower()
+                                    ]
+                                    existing_sls = set()
+                                    for r in extraction_result.records:
+                                        if "table" in (r.section or "").lower():
+                                            for f in r.fields:
+                                                if "sl" in f.field_name.lower() and str(f.value).isdigit():
+                                                    existing_sls.add(int(f.value))
+
+                                    for r_idx, r in enumerate(right_tbl_records, start=21):
+                                        sl_field = next((f for f in r.fields if "sl" in f.field_name.lower()), None)
+                                        sl_val = int(sl_field.value) if (sl_field and str(sl_field.value).isdigit()) else None
+
+                                        if sl_val is None or sl_val < 20:
+                                            corrected_sl = 20 + (sl_val if sl_val is not None else (r_idx - 20))
+                                            if sl_field:
+                                                sl_field.value = str(corrected_sl)
+                                            r.record_number = corrected_sl
+                                        else:
+                                            r.record_number = sl_val
+
+                                        if r.record_number not in existing_sls:
+                                            extraction_result.records.append(r)
+                                            existing_sls.add(r.record_number)
+                                except Exception as r_err:
+                                    logger.warning(f"Right-table extraction for page {page_num} skipped: {r_err}")
+                                finally:
+                                    right_crop_path.unlink(missing_ok=True)
+                    except Exception as split_err:
+                        logger.warning(f"Two-column table check for page {page_num} skipped: {split_err}")
+
                     # Persist records and fields for this page
                     page_table_rows = []
                     for record_data in extraction_result.records:

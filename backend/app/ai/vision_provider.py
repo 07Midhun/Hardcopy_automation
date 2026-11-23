@@ -281,13 +281,22 @@ class VisionAIProvider(BaseAIProvider):
         raw_response: str
     ) -> DocumentExtractionResult:
         doc_type = data.get("document_type", "Unidentified Document")
-        class_conf = float(data.get("classification_confidence", 0.90))
+        try:
+            class_conf = float(data.get("classification_confidence", 0.90))
+        except (ValueError, TypeError):
+            class_conf = 0.90
 
         records: List[RecordExtraction] = []
         for rec in data.get("records", []):
             section_name = rec.get("section", "General Information")
-            rec_num = int(rec.get("record_number", 1))
-            page_num = int(rec.get("page_number", 1))
+            try:
+                rec_num = int(rec.get("record_number", 1))
+            except (ValueError, TypeError):
+                rec_num = 1
+            try:
+                page_num = int(rec.get("page_number", 1))
+            except (ValueError, TypeError):
+                page_num = 1
 
             fields: List[FieldExtraction] = []
             for f in rec.get("fields", []):
@@ -295,7 +304,10 @@ class VisionAIProvider(BaseAIProvider):
                 if not fname:
                     continue
                 val = f.get("value")
-                conf = float(f.get("confidence", 0.85))
+                try:
+                    conf = float(f.get("confidence", 0.85))
+                except (ValueError, TypeError):
+                    conf = 0.85
                 status = f.get("verification_status") or self.determine_status(val, conf)
                 coords = f.get("coordinates")
 

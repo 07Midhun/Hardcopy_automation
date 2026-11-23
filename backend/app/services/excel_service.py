@@ -506,6 +506,7 @@ class ExcelService:
         ws.title = WORKSHEET_NAME
 
         headers = [
+            "PAGE NO",
             "WARD",
             "PANEL UID",
             "POLE ID",
@@ -556,6 +557,7 @@ class ExcelService:
             if not tbl:
                 continue
 
+            page_num_val = page_key[1]
             ward_f = ctx.get("Ward Number") or ctx.get("Constituency & Ward Number") or ctx.get("Ward")
             ward = cls.format_ward(ward_f.get("val") if ward_f else None)
 
@@ -601,6 +603,7 @@ class ExcelService:
                 verified_status = "Review Required" if has_low_conf else "Verified"
 
                 row_vals = [
+                    page_num_val,
                     ward,
                     panel_uid,
                     pole_id,
@@ -620,50 +623,53 @@ class ExcelService:
                     cell.border = cell_border
 
                     # Alignment and number formats
-                    if col_idx in (1, 3, 4, 6, 7):
+                    if col_idx == 1:
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                        cell.number_format = "0"
+                    elif col_idx in (2, 4, 5, 7, 8):
                         cell.alignment = Alignment(horizontal="left", vertical="center")
                         cell.number_format = "@"
-                    elif col_idx in (5, 8, 9):
+                    elif col_idx in (6, 9, 10):
                         cell.alignment = Alignment(horizontal="right", vertical="center")
                         if str(cell.value).isdigit():
                             cell.number_format = "0"
-                    elif col_idx in (2, 10):
+                    elif col_idx in (3, 11):
                         cell.alignment = Alignment(horizontal="center", vertical="center")
                         cell.number_format = "@"
 
                     # Low confidence values highlighted in yellow (FFF2CC)
-                    if col_idx == 1 and is_low_conf(ward_f):
+                    if col_idx == 2 and is_low_conf(ward_f):
                         cell.fill = review_fill
-                    elif col_idx == 3 and is_low_conf(pole_f):
+                    elif col_idx == 4 and is_low_conf(pole_f):
                         cell.fill = review_fill
-                    elif col_idx == 4 and is_low_conf(sp_f):
+                    elif col_idx == 5 and is_low_conf(sp_f):
                         cell.fill = review_fill
-                    elif col_idx == 5 and is_low_conf(arm_f):
+                    elif col_idx == 6 and is_low_conf(arm_f):
                         cell.fill = review_fill
-                    elif col_idx == 6 and is_low_conf(ex_new_f):
+                    elif col_idx == 7 and is_low_conf(ex_new_f):
                         cell.fill = review_fill
-                    elif col_idx == 7 and is_low_conf(burn_f):
+                    elif col_idx == 8 and is_low_conf(burn_f):
                         cell.fill = review_fill
-                    elif col_idx == 8 and is_low_conf(conn_f):
+                    elif col_idx == 9 and is_low_conf(conn_f):
                         cell.fill = review_fill
-                    elif col_idx == 9 and is_low_conf(tot_f):
+                    elif col_idx == 10 and is_low_conf(tot_f):
                         cell.fill = review_fill
-                    elif col_idx == 10 and has_low_conf:
+                    elif col_idx == 11 and has_low_conf:
                         cell.fill = review_fill
 
                 current_row += 1
 
             end_row_for_page = current_row - 1
             if end_row_for_page > start_row_for_page:
-                ws.merge_cells(start_row=start_row_for_page, end_row=end_row_for_page, start_column=2, end_column=2)
+                ws.merge_cells(start_row=start_row_for_page, end_row=end_row_for_page, start_column=3, end_column=3)
                 for r in range(start_row_for_page, end_row_for_page + 1):
-                    c = ws.cell(row=r, column=2)
+                    c = ws.cell(row=r, column=3)
                     c.border = cell_border
                     c.alignment = Alignment(horizontal="center", vertical="center")
                     if is_low_conf(panel_f):
                         c.fill = review_fill
 
-        col_widths = [10, 20, 14, 12, 14, 18, 18, 20, 16, 18]
+        col_widths = [10, 10, 20, 14, 12, 14, 18, 18, 20, 16, 18]
         for col_idx, width in enumerate(col_widths, 1):
             ws.column_dimensions[get_column_letter(col_idx)].width = width
 
